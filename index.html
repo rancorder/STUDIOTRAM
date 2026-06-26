@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>STUDIO TRAM ｜ FILM · MUSIC · SOUND</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="deck">
+    <div class="stage" id="stage">
+      <div class="slide-mount" id="mount"></div>
+      <div class="track" aria-hidden="true">
+        <div class="track-line"></div>
+        <div class="track-fill"></div>
+        <div class="track-node"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="deck-data.js"></script>
+  <script>
+  (function () {
+    const DECK = window.TRAM_DECK, TOTAL = DECK.length;
+    const stage = document.getElementById("stage");
+    const mount = document.getElementById("mount");
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let cur = 0;
+    const picks = {}; // slideIndex -> chosen option key（選択状態を保持）
+
+    /* 16:9 自動スケール */
+    function fit() {
+      const s = Math.min(innerWidth / 1280, innerHeight / 720);
+      stage.style.transform = "scale(" + s + ")";
+    }
+    addEventListener("resize", fit);
+
+    /* チャンネル同期（presenterと双方向） */
+    let ch = null;
+    try { ch = new BroadcastChannel("studio-tram-deck"); } catch (e) {}
+    if (ch) ch.onmessage = (e) => {
+      const m = e.data || {};
+      if (m.type === "goto" && m.i !== cur) go(m.i, false);
+      if (m.type === "pick" && m.i === cur) applyPick(m.k, false);
+      if (m.type === "hello" && ch) ch.postMessage({ type: "state", i: cur });
+    };
+    function broadcast(o) { if (ch) ch.postMessage(o); }
+
+    function render() {
+      mount.innerHTML = window.renderSlide(DECK[cur], cur, TOTAL);
+      stage.style.setProperty("--progress", TOTAL > 1 ? cur / (TOTAL - 1) : 0);
+      stage.classList.toggle("is-hero", DECK[cur].layout === "hero");
+
+      // 選択肢のクリック挙動
+      const slide = mount.querySelector(".slide");
+      if (DECK[cur].layout === "choices") {
+        slide.querySelectorAll(".choice").forEach((btn) => {
+          btn.addEventListener("click", () => applyPick(+btn.dataset.k, true));
+        });
+        if (picks[cur] != null) applyPick(picks[cur], false);
+      }
+
+      const el = slide;
+      if (reduce) { el.classList.add("in"); }
+      else { requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("in"))); }
+    }
+
+    function applyPick(k, emit) {
+      picks[cur] = k;
+      const grid = mount.querySelector(".choice-grid");
+      if (!grid) return;
+      grid.classList.add("has-pick");
+      grid.querySelectorAll(".choice").forEach((b) =>
+        b.classList.toggle("is-picked", +b.dataset.k === k)
+      );
+      if (emit) broadcast({ type: "pick", i: cur, k });
+    }
+
+    function go(i, emit) {
+      i = Math.max(0, Math.min(TOTAL - 1, i));
+      if (i === cur) return;
+      cur = i;
+      render();
+      if (emit) broadcast({ type: "goto", i: cur });
+    }
+    function next() { go(cur + 1, true); }
+    function prev() { go(cur - 1, true); }
+
+    addEventListener("keydown", (e) => {
+      if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); next(); }
+      else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); prev(); }
+      else if (e.key === "Home") go(0, true);
+      else if (e.key === "End") go(TOTAL - 1, true);
+    });
+    stage.addEventListener("click", (e) => {
+      if (e.target.closest(".choice")) return; // 選択肢クリックは送り送りしない
+      next();
+    });
+
+    fit(); render();
+    broadcast({ type: "hello" });
+  })();
+  </script>
+</body>
+</html>
